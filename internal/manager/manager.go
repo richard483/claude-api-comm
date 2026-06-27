@@ -150,6 +150,41 @@ func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
 	m.br.Publish(turnID, model.Event{Type: "result", Text: res.Text})
 }
 
+func (m *Manager) Summarize(ctx context.Context, sessionID uuid.UUID, fork bool) (model.Session, string, error) {
+	sess, err := m.st.GetSession(ctx, sessionID)
+	if err != nil {
+		return model.Session{}, "", err
+	}
+	resumeID := ""
+	if sess.ClaudeSessionID != nil {
+		resumeID = *sess.ClaudeSessionID
+	}
+	const summaryPrompt = "Summarize this session so far as durable context for continuing later: key goals, decisions, current state, and open tasks. Be concise."
+	res, err := m.ex.Run(ctx, sess.WorkspacePath, summaryPrompt, resumeID, func(model.Event) {})
+	if err != nil {
+		return model.Session{}, "", err
+	}
+	if err := m.st.SetRollingSummary(ctx, sessionID, res.Text); err != nil {
+		return model.Session{}, "", err
+	}
+	if !fork {
+		updated, _ := m.st.GetSession(ctx, sessionID)
+		return updated, res.Text, nil
+	}
+	newID := uuid.New()
+	ws, err := m.run.Prepare(ctx, newID)
+	if err != nil {
+		return model.Session{}, "", err
+	}
+	summary := res.Text
+	forked, err := m.st.CreateSession(ctx, model.Session{
+		ID: newID, WorkspacePath: ws, Backend: m.run.Backend(),
+		Label: sess.Label + " (fork)", Owner: sess.Owner,
+		Status: model.SessionActive, RollingSummary: &summary,
+	})
+	return forked, res.Text, err
+}
+
 func (m *Manager) Archive(ctx context.Context, sessionID uuid.UUID) error {
 	sess, err := m.st.GetSession(ctx, sessionID)
 	if err != nil {
