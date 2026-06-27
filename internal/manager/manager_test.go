@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,15 +14,24 @@ import (
 )
 
 type fakeExec struct {
+	mu        sync.Mutex
 	gotResume string
 	gotPrompt string
 }
 
 func (f *fakeExec) Run(_ context.Context, _, prompt, resumeID string, emit func(model.Event)) (model.Result, error) {
+	f.mu.Lock()
 	f.gotResume = resumeID
 	f.gotPrompt = prompt
+	f.mu.Unlock()
 	emit(model.Event{Type: "text", Text: "hi"})
 	return model.Result{ClaudeSessionID: "claude-xyz", Text: "answer", NumTurns: 1}, nil
+}
+
+func (f *fakeExec) resume() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gotResume
 }
 
 func newMgr(t *testing.T) (*Manager, *fakeExec) {
@@ -68,8 +78,8 @@ func TestEnqueueRunsTurnAndCapturesClaudeID(t *testing.T) {
 	if got.Status != model.TurnDone || got.Result != "answer" {
 		t.Fatalf("turn not done: %+v", got)
 	}
-	if fx.gotResume != "" {
-		t.Errorf("first turn should not resume, got %q", fx.gotResume)
+	if fx.resume() != "" {
+		t.Errorf("first turn should not resume, got %q", fx.resume())
 	}
 	sess2, _ := m.GetSession(ctx, sess.ID)
 	if sess2.ClaudeSessionID == nil || *sess2.ClaudeSessionID != "claude-xyz" {
@@ -78,14 +88,15 @@ func TestEnqueueRunsTurnAndCapturesClaudeID(t *testing.T) {
 
 	// second turn must resume with the captured id
 	turn2, _ := m.EnqueueTurn(ctx, sess.ID, "again")
-	for time.Now().Before(time.Now().Add(5 * time.Second)) {
+	deadline2 := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline2) {
 		g, _ := m.GetTurn(ctx, turn2.ID)
 		if g.Status.Terminal() {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if fx.gotResume != "claude-xyz" {
-		t.Errorf("second turn resume = %q, want claude-xyz", fx.gotResume)
+	if fx.resume() != "claude-xyz" {
+		t.Errorf("second turn resume = %q, want claude-xyz", fx.resume())
 	}
 }

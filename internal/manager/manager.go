@@ -101,10 +101,14 @@ func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
 
 	sess, err := m.st.GetSession(ctx, sessionID)
 	if err != nil {
+		_ = m.st.FinishTurn(ctx, model.Turn{ID: turnID, SessionID: sessionID, Status: model.TurnError, Error: err.Error()})
+		m.br.Publish(turnID, model.Event{Type: "error", Text: err.Error()})
 		return
 	}
 	turn, err := m.st.GetTurn(ctx, turnID)
 	if err != nil {
+		_ = m.st.FinishTurn(ctx, model.Turn{ID: turnID, SessionID: sessionID, Status: model.TurnError, Error: err.Error()})
+		m.br.Publish(turnID, model.Event{Type: "error", Text: err.Error()})
 		return
 	}
 	_ = m.st.StartTurn(ctx, turnID)
