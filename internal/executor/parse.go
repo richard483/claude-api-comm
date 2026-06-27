@@ -8,14 +8,14 @@ import (
 )
 
 type streamLine struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	Session string `json:"session_id"`
-	Result  string `json:"result"`
-	NumTurns int   `json:"num_turns"`
-	Cost    float64 `json:"total_cost_usd"`
-	Duration int64  `json:"duration_ms"`
-	Message struct {
+	Type     string  `json:"type"`
+	Subtype  string  `json:"subtype"`
+	Session  string  `json:"session_id"`
+	Result   string  `json:"result"`
+	NumTurns int     `json:"num_turns"`
+	Cost     float64 `json:"total_cost_usd"`
+	Duration int64   `json:"duration_ms"`
+	Message  struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
