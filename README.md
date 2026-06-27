@@ -62,3 +62,34 @@ Remove it:
 
 Notes: Linux/systemd only. The installer creates `WORKSPACE_BASE_DIR` owned by `RUN_USER`
 (default `nephren`) and installs the binary to `/usr/local/bin/claude-api-comm`.
+
+## Run with Docker
+
+The image bundles the Go binary plus Node and the `claude` CLI (and `git`, for session
+worktrees). It carries **no Claude credentials** — you must mount them at run time.
+
+    docker build -t claude-api-comm .
+
+    docker run -d --name claude-api-comm \
+      -p 18100:18100 \
+      -e DATABASE_URL="postgres://user:pass@222.222.1.103:5432/agent_memory" \
+      -e WORKSPACE_BASE_DIR=/sessions \
+      -v "$HOME/.claude:/root/.claude" \      # REQUIRED: Claude auth (read-write, for token refresh)
+      -v claude-sessions:/sessions \          # persist session worktrees
+      --restart unless-stopped \
+      claude-api-comm
+
+Required at run time:
+- **`-v "$HOME/.claude:/root/.claude"`** — without your Claude credentials mounted, the `claude`
+  CLI inside the container cannot authenticate. Mount read-write so refreshed tokens persist.
+  The container runs as root with `HOME=/root`, so the mount target is `/root/.claude`. If you run
+  with a non-root `--user`, mount to that user's home and ensure it can read the creds.
+- **`-e DATABASE_URL=...`** — required; the container must be able to reach Postgres at
+  `222.222.1.103:5432`.
+
+Optional env (same as the binary): `LISTEN_ADDR`, `DEFAULT_MODEL`, `CLAUDE_BIN`,
+`MAX_CONCURRENCY`, `TURN_TIMEOUT`, `IDLE_REAP_AGE`.
+
+Note: in Docker, `claude` runs *inside the container*, so its full-access execution is bounded by
+the container. All sessions still share one container — this containerizes the service, not the
+per-session container isolation backend (a separate future item).

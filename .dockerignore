@@ -1,0 +1,8 @@
+.git
+.gitignore
+.superpowers
+docs
+deploy
+*.log
+claude-sessions
+*.md
