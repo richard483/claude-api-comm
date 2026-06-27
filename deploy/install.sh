@@ -14,11 +14,16 @@ set -euo pipefail
 : "${INSTALL_BIN:=/usr/local/bin/claude-api-comm}"
 : "${RUN_USER:=nephren}"
 
-# app env baked into the unit as Environment= lines
+# app env baked into the unit as Environment= lines.
+# NOTE: do not commit real credentials here — pass a DSN with a password via the environment,
+#   e.g.  DATABASE_URL="postgres://user:pass@host:5432/db" ./deploy/install.sh
 : "${DATABASE_URL:=postgres://agent_memory@222.222.1.103:5432/agent_memory}"
 : "${LISTEN_ADDR:=:18100}"
 : "${WORKSPACE_BASE_DIR:=/home/nephren/claude-sessions}"
-: "${CLAUDE_BIN:=claude}"
+# Absolute path to the claude CLI. systemd uses a minimal PATH and does NOT load the user's
+# shell profile, so a bare "claude" (installed under ~/.local/bin or nvm) won't be found.
+# Resolve it at install time; fall back to the native-install default.
+: "${CLAUDE_BIN:=$(command -v claude 2>/dev/null || echo "/home/${RUN_USER}/.local/bin/claude")}"
 : "${DEFAULT_MODEL:=}"
 : "${MAX_CONCURRENCY:=3}"
 : "${TURN_TIMEOUT:=30m}"
@@ -42,6 +47,7 @@ Wants=network-online.target
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${WORKSPACE_BASE_DIR}
+Environment="PATH=$(dirname "${CLAUDE_BIN}"):/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="DATABASE_URL=${DATABASE_URL}"
 Environment="LISTEN_ADDR=${LISTEN_ADDR}"
 Environment="WORKSPACE_BASE_DIR=${WORKSPACE_BASE_DIR}"
