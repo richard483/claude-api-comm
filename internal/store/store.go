@@ -20,6 +20,9 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping checks that the database connection is alive (Fix 6).
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 const schemaDDL = `
 CREATE SCHEMA IF NOT EXISTS comm_agent_memory;
 CREATE TABLE IF NOT EXISTS comm_agent_memory.sessions (

@@ -2,9 +2,12 @@ package executor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"syscall"
+	"time"
 
 	"github.com/richard483/claude-api-comm/internal/model"
 )
@@ -28,6 +31,17 @@ func (e *ClaudeExecutor) Run(ctx context.Context, workspace, prompt, resumeID st
 	}
 	cmd := exec.CommandContext(ctx, e.Bin, args...)
 	cmd.Dir = workspace
+	// Fix 3: start child in its own process group so we can kill the whole group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Fix 3: on context cancellation, kill the entire process group.
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 5 * time.Second
+
+	// Fix 2: capture stderr so failure detail is preserved.
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -50,8 +64,23 @@ func (e *ClaudeExecutor) Run(ctx context.Context, workspace, prompt, resumeID st
 			final = fin
 		}
 	}
-	if err := cmd.Wait(); err != nil {
-		return model.Result{}, fmt.Errorf("claude exited: %w", err)
+	// Fix 4: capture scanner error before Wait so it's not lost.
+	scanErr := scanner.Err()
+
+	waitErr := cmd.Wait()
+
+	// Fix 2: include stderr in the returned error on non-zero exit.
+	if waitErr != nil {
+		stderrText := stderrBuf.String()
+		const maxStderr = 4096
+		if len(stderrText) > maxStderr {
+			stderrText = stderrText[len(stderrText)-maxStderr:]
+		}
+		return model.Result{}, fmt.Errorf("claude exited: %w: %s", waitErr, stderrText)
+	}
+	// Fix 4: surface scanner error if process succeeded but we had a read failure.
+	if scanErr != nil {
+		return model.Result{}, fmt.Errorf("reading claude output: %w", scanErr)
 	}
 	if final == nil {
 		return model.Result{}, fmt.Errorf("no result event from claude")

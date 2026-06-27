@@ -41,6 +41,7 @@ func (f *fakeSvc) Summarize(context.Context, uuid.UUID, bool) (model.Session, st
 	return f.sess, "summary text", nil
 }
 func (f *fakeSvc) Archive(context.Context, uuid.UUID) error { return nil }
+func (f *fakeSvc) Ready(context.Context) error              { return nil }
 
 func TestCreateSessionEndpoint(t *testing.T) {
 	r := NewRouter(&fakeSvc{})
@@ -102,5 +103,15 @@ func TestHealthLive(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
+	}
+}
+
+func TestHealthReady(t *testing.T) {
+	r := NewRouter(&fakeSvc{})
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
 	}
 }

@@ -21,6 +21,7 @@ type Service interface {
 	Subscribe(turnID uuid.UUID) (<-chan model.Event, func())
 	Summarize(ctx context.Context, sessionID uuid.UUID, fork bool) (model.Session, string, error)
 	Archive(ctx context.Context, sessionID uuid.UUID) error
+	Ready(ctx context.Context) error // Fix 6: DB-backed readiness check
 }
 
 type handler struct{ svc Service }
@@ -33,7 +34,13 @@ func NewRouter(svc Service) http.Handler {
 	// r.Use(authMiddleware)
 
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Get("/health/ready", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.Ready(r.Context()); err != nil {
+			httpErr(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 
 	r.Post("/sessions", h.createSession)
 	r.Get("/sessions", h.listSessions)

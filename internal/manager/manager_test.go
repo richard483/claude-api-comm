@@ -100,3 +100,57 @@ func TestEnqueueRunsTurnAndCapturesClaudeID(t *testing.T) {
 		t.Errorf("second turn resume = %q, want claude-xyz", fx.resume())
 	}
 }
+
+// TestSummarizeSerializesWithTurns verifies that Summarize stores a rolling_summary
+// and serializes correctly with turns (correctness + no data race under -race).
+func TestSummarizeSerializesWithTurns(t *testing.T) {
+	m, _ := newMgr(t)
+	ctx := context.Background()
+
+	sess, err := m.CreateSession(ctx, "summarize-test", "rein")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run one turn so the session has a claude_session_id.
+	turn, err := m.EnqueueTurn(ctx, sess.ID, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		got, _ := m.GetTurn(ctx, turn.ID)
+		if got.Status.Terminal() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Now call Summarize — it must acquire the per-session lock (serializes with runTurn)
+	// and store the rolling summary.
+	updatedSess, summary, err := m.Summarize(ctx, sess.ID, false)
+	if err != nil {
+		t.Fatalf("Summarize error: %v", err)
+	}
+	if summary == "" {
+		t.Error("Summarize returned empty summary")
+	}
+	if updatedSess.RollingSummary == nil || *updatedSess.RollingSummary == "" {
+		t.Errorf("rolling_summary not stored, got: %v", updatedSess.RollingSummary)
+	}
+
+	// Verify the session lock was created by sessionLock helper.
+	mu := m.sessionLock(sess.ID)
+	if mu == nil {
+		t.Error("sessionLock returned nil")
+	}
+
+	// Verify the stored rolling_summary matches what was returned.
+	fetched, err := m.GetSession(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched.RollingSummary == nil || *fetched.RollingSummary != summary {
+		t.Errorf("stored rolling_summary = %v, want %q", fetched.RollingSummary, summary)
+	}
+}

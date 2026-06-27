@@ -22,17 +22,33 @@ type Manager struct {
 	sem         chan struct{}
 	turnTimeout time.Duration
 
-	mu      sync.Mutex
-	workers map[uuid.UUID]chan uuid.UUID // sessionID -> queued turn IDs
+	mu           sync.Mutex
+	workers      map[uuid.UUID]chan uuid.UUID     // sessionID -> queued turn IDs
+	sessionLocks map[uuid.UUID]*sync.Mutex        // per-session execution lock (Fix 1)
+	running      map[uuid.UUID]context.CancelFunc // sessionID -> cancel for running turn (Fix 5)
 }
 
 func New(st *store.Store, run runner.SessionRunner, ex executor.Executor, br *broker.Broker, maxConcurrency int, turnTimeout time.Duration) *Manager {
 	return &Manager{
 		st: st, run: run, ex: ex, br: br,
-		sem:         make(chan struct{}, maxConcurrency),
-		turnTimeout: turnTimeout,
-		workers:     make(map[uuid.UUID]chan uuid.UUID),
+		sem:          make(chan struct{}, maxConcurrency),
+		turnTimeout:  turnTimeout,
+		workers:      make(map[uuid.UUID]chan uuid.UUID),
+		sessionLocks: make(map[uuid.UUID]*sync.Mutex),
+		running:      make(map[uuid.UUID]context.CancelFunc),
 	}
+}
+
+// sessionLock returns the per-session mutex, creating it lazily under m.mu.
+func (m *Manager) sessionLock(id uuid.UUID) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mu, ok := m.sessionLocks[id]
+	if !ok {
+		mu = &sync.Mutex{}
+		m.sessionLocks[id] = mu
+	}
+	return mu
 }
 
 func (m *Manager) CreateSession(ctx context.Context, label, owner string) (model.Session, error) {
@@ -92,11 +108,21 @@ func (m *Manager) dispatch(sessionID uuid.UUID) chan uuid.UUID {
 }
 
 func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
+	// Lock ordering: sem first, then session lock.
 	m.sem <- struct{}{}
 	defer func() { <-m.sem }()
 
+	// Fix 5: create a cancellable context and register it so Archive can cancel it.
 	ctx, cancel := context.WithTimeout(context.Background(), m.turnTimeout)
-	defer cancel()
+	m.mu.Lock()
+	m.running[sessionID] = cancel
+	m.mu.Unlock()
+	defer func() {
+		cancel()
+		m.mu.Lock()
+		delete(m.running, sessionID)
+		m.mu.Unlock()
+	}()
 	defer m.br.Close(turnID)
 
 	sess, err := m.st.GetSession(ctx, sessionID)
@@ -124,9 +150,16 @@ func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
 		prompt = fmt.Sprintf("Context from a previous session:\n%s\n\n---\n\n%s", *sess.RollingSummary, prompt)
 	}
 
+	// Fix 1: hold the per-session lock around Run + claude session ID capture/update.
+	sessMu := m.sessionLock(sessionID)
+	sessMu.Lock()
 	res, runErr := m.ex.Run(ctx, sess.WorkspacePath, prompt, resumeID, func(ev model.Event) {
 		m.br.Publish(turnID, ev)
 	})
+	if runErr == nil && sess.ClaudeSessionID == nil && res.ClaudeSessionID != "" {
+		_ = m.st.UpdateSessionClaudeID(ctx, sessionID, res.ClaudeSessionID)
+	}
+	sessMu.Unlock()
 
 	if runErr != nil {
 		turn.Status = model.TurnError
@@ -137,9 +170,6 @@ func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
 		return
 	}
 
-	if sess.ClaudeSessionID == nil && res.ClaudeSessionID != "" {
-		_ = m.st.UpdateSessionClaudeID(ctx, sessionID, res.ClaudeSessionID)
-	}
 	turn.Status = model.TurnDone
 	turn.Result = res.Text
 	turn.NumTurns = res.NumTurns
@@ -160,7 +190,16 @@ func (m *Manager) Summarize(ctx context.Context, sessionID uuid.UUID, fork bool)
 		resumeID = *sess.ClaudeSessionID
 	}
 	const summaryPrompt = "Summarize this session so far as durable context for continuing later: key goals, decisions, current state, and open tasks. Be concise."
+
+	// Fix 1: acquire sem then session lock (same ordering as runTurn).
+	m.sem <- struct{}{}
+	defer func() { <-m.sem }()
+
+	sessMu := m.sessionLock(sessionID)
+	sessMu.Lock()
 	res, err := m.ex.Run(ctx, sess.WorkspacePath, summaryPrompt, resumeID, func(model.Event) {})
+	sessMu.Unlock()
+
 	if err != nil {
 		return model.Session{}, "", err
 	}
@@ -186,6 +225,13 @@ func (m *Manager) Summarize(ctx context.Context, sessionID uuid.UUID, fork bool)
 }
 
 func (m *Manager) Archive(ctx context.Context, sessionID uuid.UUID) error {
+	// Fix 5: cancel any running turn before cleaning up the workspace.
+	m.mu.Lock()
+	if cancel, ok := m.running[sessionID]; ok {
+		cancel()
+	}
+	m.mu.Unlock()
+
 	sess, err := m.st.GetSession(ctx, sessionID)
 	if err != nil {
 		return err
@@ -194,4 +240,9 @@ func (m *Manager) Archive(ctx context.Context, sessionID uuid.UUID) error {
 		return err
 	}
 	return m.st.TouchSession(ctx, sessionID, model.SessionArchived)
+}
+
+// Ready checks that the store is reachable (Fix 6).
+func (m *Manager) Ready(ctx context.Context) error {
+	return m.st.Ping(ctx)
 }
