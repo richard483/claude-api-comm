@@ -75,6 +75,26 @@ func TestEnqueueTurnReturns202(t *testing.T) {
 	}
 }
 
+func TestCreateSessionRejectsMalformedJSON(t *testing.T) {
+	r := NewRouter(&fakeSvc{})
+	req := httptest.NewRequest(http.MethodPost, "/sessions", strings.NewReader(`{bad`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body)
+	}
+}
+
+func TestCreateSessionEmptyBodyOK(t *testing.T) {
+	r := NewRouter(&fakeSvc{})
+	req := httptest.NewRequest(http.MethodPost, "/sessions", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", w.Code, w.Body)
+	}
+}
+
 func TestHealthLive(t *testing.T) {
 	r := NewRouter(&fakeSvc{})
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -61,7 +62,10 @@ func pathUUID(r *http.Request, key string) (uuid.UUID, error) {
 
 func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Label, Owner string }
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		httpErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
 	s, err := h.svc.CreateSession(r.Context(), body.Label, body.Owner)
 	if err != nil {
 		httpErr(w, http.StatusInternalServerError, err.Error())
