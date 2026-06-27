@@ -33,6 +33,10 @@ func NewRouter(svc Service) http.Handler {
 	// Auth middleware slot (none in v1):
 	// r.Use(authMiddleware)
 
+	// Interactive API docs (Swagger UI) + raw spec.
+	r.Get("/docs", h.docsPage)
+	r.Get("/openapi.yaml", h.openapiYAML)
+
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := svc.Ready(r.Context()); err != nil {

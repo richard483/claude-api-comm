@@ -1,0 +1,281 @@
+openapi: 3.0.3
+info:
+  title: claude-api-comm
+  version: "1.0.0"
+  description: >
+    HTTP API that drives headless Claude Code on a VM: create/resume sessions, send prompts
+    asynchronously, stream progress over SSE, and persist a session/turn registry in Postgres.
+    No auth in v1 — deployed behind a trusted-network caller.
+servers:
+  - url: /
+    description: Same host that served this page
+
+tags:
+  - name: sessions
+  - name: turns
+  - name: health
+
+paths:
+  /sessions:
+    post:
+      tags: [sessions]
+      summary: Create a session
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400": { $ref: "#/components/responses/BadRequest" }
+    get:
+      tags: [sessions]
+      summary: List sessions
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, idle, archived]
+          description: Filter by status. Omit to list non-archived sessions.
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+
+  /sessions/{id}:
+    get:
+      tags: [sessions]
+      summary: Get a session
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/messages:
+    post:
+      tags: [turns]
+      summary: Enqueue a prompt (async turn)
+      description: Returns immediately with a queued turn. Poll the turn or subscribe to its SSE stream.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueTurnRequest"
+      responses:
+        "202":
+          description: Turn queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Turn"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /sessions/{id}/turns/{turnID}:
+    get:
+      tags: [turns]
+      summary: Get a turn (poll status/result)
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/TurnId"
+      responses:
+        "200":
+          description: Turn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Turn"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /sessions/{id}/turns/{turnID}/stream:
+    get:
+      tags: [turns]
+      summary: Stream turn progress (SSE)
+      description: >
+        Server-Sent Events stream of turn progress (text deltas, tool-use events, final result).
+        Note: Swagger UI "Try it out" cannot render a live event stream — use a browser EventSource
+        or `curl -N`.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/TurnId"
+      responses:
+        "200":
+          description: An event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /sessions/{id}/summarize:
+    post:
+      tags: [sessions]
+      summary: Summarize a session (and optionally fork)
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: fork
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: When true, create a fresh session seeded with the summary.
+      responses:
+        "200":
+          description: Summary (and forked session if fork=true)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummarizeResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /sessions/{id}/archive:
+    post:
+      tags: [sessions]
+      summary: Archive a session (stops running turn, removes workspace)
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          description: Archived
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /health/live:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Alive
+
+  /health/ready:
+    get:
+      tags: [health]
+      summary: Readiness probe (checks the database)
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Not ready (database unreachable)
+
+components:
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TurnId:
+      name: turnID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+        owner:
+          type: string
+
+    EnqueueTurnRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        claude_session_id: { type: string, nullable: true }
+        workspace_path: { type: string }
+        backend: { type: string, example: worktree }
+        label: { type: string }
+        owner: { type: string }
+        status: { type: string, enum: [active, idle, archived] }
+        rolling_summary: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+
+    Turn:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        prompt: { type: string }
+        status: { type: string, enum: [queued, running, done, error] }
+        result: { type: string }
+        error: { type: string }
+        num_turns: { type: integer }
+        cost_usd: { type: number, format: double }
+        duration_ms: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+
+    SummarizeResponse:
+      type: object
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
+        summary:
+          type: string

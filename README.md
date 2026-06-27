@@ -23,6 +23,11 @@ asynchronously, stream progress over SSE, and persist a session/turn registry in
 | TURN_TIMEOUT | 30m | per-turn ceiling |
 | IDLE_REAP_AGE | 24h | reserved for idle reaping |
 
+## Interactive docs
+
+Swagger UI with "Try it out" is served at `http://<host>:18100/docs` (raw spec at
+`/openapi.yaml`). The UI loads its assets from a CDN, so opening `/docs` needs browser internet.
+
 ## Endpoints
 
 - `POST /sessions` `{label,owner}` → 201 session
