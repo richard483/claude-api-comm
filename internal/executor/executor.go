@@ -22,7 +22,8 @@ type ClaudeExecutor struct {
 }
 
 func (e *ClaudeExecutor) Run(ctx context.Context, workspace, prompt, resumeID string, emit func(model.Event)) (model.Result, error) {
-	args := []string{"-p", prompt, "--output-format", "stream-json", "--dangerously-skip-permissions"}
+	// claude requires --verbose when combining --print (-p) with --output-format stream-json.
+	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
 	if e.Model != "" {
 		args = append(args, "--model", e.Model)
 	}
