@@ -74,10 +74,16 @@ worktrees). It carries **no Claude credentials** — you must mount them at run 
       -p 18100:18100 \
       -e DATABASE_URL="postgres://user:pass@222.222.1.103:5432/agent_memory" \
       -e WORKSPACE_BASE_DIR=/sessions \
-      -v "$HOME/.claude:/root/.claude" \      # REQUIRED: Claude auth (read-write, for token refresh)
-      -v claude-sessions:/sessions \          # persist session worktrees
+      -v "$HOME/.claude:/root/.claude" \                 # REQUIRED: Claude auth (read-write, for token refresh)
+      -v /home/nephren/claude-sessions:/sessions \       # persist session worktrees on the host
       --restart unless-stopped \
       claude-api-comm
+
+The `/sessions` mount above is a **bind mount** to a host path, so the worktrees live at
+`/home/nephren/claude-sessions` and are easy to inspect on the VM. Docker auto-creates that path
+if missing (root-owned, which is fine since the container runs as root). If you'd rather let Docker
+manage the storage instead, replace it with a **named volume** — `-v claude-sessions:/sessions` —
+which Docker creates automatically (no host directory needed).
 
 Required at run time:
 - **`-v "$HOME/.claude:/root/.claude"`** — without your Claude credentials mounted, the `claude`
