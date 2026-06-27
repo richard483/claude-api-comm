@@ -89,9 +89,11 @@ install -d -o "$RUN_USER" -g "$RUN_USER" "$WORKSPACE_BASE_DIR"
 echo "Writing ${UNIT_PATH} ..."
 render_unit > "$UNIT_PATH"
 
-echo "Reloading systemd and starting ${SERVICE_NAME} ..."
+echo "Reloading systemd and (re)starting ${SERVICE_NAME} ..."
 systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
+systemctl enable "$SERVICE_NAME"
+# restart (not just start) so a re-install applies the updated unit/env to a running service.
+systemctl restart "$SERVICE_NAME"
 
 echo
 systemctl --no-pager --full status "$SERVICE_NAME" || true
