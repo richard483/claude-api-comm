@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/richard483/claude-api-comm/internal/model"
 )
@@ -150,6 +152,42 @@ func (s *Store) GetTurn(ctx context.Context, id uuid.UUID) (model.Turn, error) {
 		`SELECT `+turnCols+` FROM comm_agent_memory.turns WHERE id=$1`, id).
 		Scan(&m.ID, &m.SessionID, &m.Prompt, &m.Status, &m.Result, &m.Error,
 			&m.NumTurns, &m.CostUSD, &m.DurationMs, &m.CreatedAt, &m.FinishedAt)
+	return m, err
+}
+
+// ErrNoTurns means the session exists but has never been given a message.
+// Mapped from pgx.ErrNoRows here so callers above this layer never import pgx.
+var ErrNoTurns = errors.New("no turns for session")
+
+// latestTurnQuery picks the newest terminal turn (done or error), falling back
+// to the newest in-flight turn when none has finished — that is exactly what
+// "ORDER BY terminal DESC, created_at DESC" expresses. pending is computed in
+// the same statement so the turn and the flag come from one consistent
+// snapshot; two separate queries could observe the turn finishing in between
+// and report a stale turn with pending=false.
+const latestTurnQuery = `
+WITH ranked AS (
+	SELECT id, session_id, prompt, status, result, error, num_turns, cost_usd,
+	       duration_ms, created_at, finished_at,
+	       (status IN ('done','error')) AS terminal
+	FROM comm_agent_memory.turns
+	WHERE session_id = $1
+)
+SELECT r.id, r.session_id, r.prompt, r.status, r.result, r.error,
+       r.num_turns, r.cost_usd, r.duration_ms, r.created_at, r.finished_at,
+       EXISTS (SELECT 1 FROM ranked WHERE NOT terminal) AS pending
+FROM ranked r
+ORDER BY r.terminal DESC, r.created_at DESC
+LIMIT 1`
+
+func (s *Store) GetLatestTurn(ctx context.Context, sessionID uuid.UUID) (model.LatestTurn, error) {
+	var m model.LatestTurn
+	err := s.pool.QueryRow(ctx, latestTurnQuery, sessionID).
+		Scan(&m.ID, &m.SessionID, &m.Prompt, &m.Status, &m.Result, &m.Error,
+			&m.NumTurns, &m.CostUSD, &m.DurationMs, &m.CreatedAt, &m.FinishedAt, &m.Pending)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.LatestTurn{}, ErrNoTurns
+	}
 	return m, err
 }
 
