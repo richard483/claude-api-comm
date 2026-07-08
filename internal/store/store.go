@@ -165,6 +165,14 @@ var ErrNoTurns = errors.New("no turns for session")
 // the same statement so the turn and the flag come from one consistent
 // snapshot; two separate queries could observe the turn finishing in between
 // and report a stale turn with pending=false.
+//
+// pending is deliberately tested as the positive predicate
+// "status IN ('queued','running')" rather than as NOT terminal
+// (NOT status IN ('done','error')). turns.status is bare TEXT with no CHECK
+// constraint, so the two are not guaranteed to be complements: adding a fifth
+// status later (e.g. 'canceled') would leave NOT terminal permanently true
+// even though no turn is actually in flight. Note terminal still drives the
+// ORDER BY above; only the pending predicate is positive.
 const latestTurnQuery = `
 WITH ranked AS (
 	SELECT id, session_id, prompt, status, result, error, num_turns, cost_usd,
@@ -175,7 +183,7 @@ WITH ranked AS (
 )
 SELECT r.id, r.session_id, r.prompt, r.status, r.result, r.error,
        r.num_turns, r.cost_usd, r.duration_ms, r.created_at, r.finished_at,
-       EXISTS (SELECT 1 FROM ranked WHERE NOT terminal) AS pending
+       EXISTS (SELECT 1 FROM ranked WHERE status IN ('queued','running')) AS pending
 FROM ranked r
 ORDER BY r.terminal DESC, r.created_at DESC
 LIMIT 1`

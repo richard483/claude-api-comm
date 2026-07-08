@@ -35,6 +35,8 @@ func seedTurn(t *testing.T, s *Store, sessionID uuid.UUID, prompt string, status
 		t.Fatalf("CreateTurn: %v", err)
 	}
 	switch status {
+	case model.TurnQueued:
+		// already queued from CreateTurn above; no state transition needed.
 	case model.TurnRunning:
 		if err := s.StartTurn(ctx, turn.ID); err != nil {
 			t.Fatalf("StartTurn: %v", err)
@@ -79,6 +81,47 @@ func TestGetLatestTurnFallsBackToRunningTurn(t *testing.T) {
 	}
 	if !got.Pending {
 		t.Error("pending = false, want true while a turn is running")
+	}
+}
+
+func TestGetLatestTurnFallsBackToQueuedTurn(t *testing.T) {
+	s := newTestStore(t)
+	sess := seedSession(t, s)
+	queued := seedTurn(t, s, sess.ID, "what is 2+2", model.TurnQueued, "", "")
+
+	got, err := s.GetLatestTurn(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("GetLatestTurn: %v", err)
+	}
+	if got.ID != queued.ID {
+		t.Errorf("id = %v, want the queued turn %v", got.ID, queued.ID)
+	}
+	if got.Status != model.TurnQueued || got.Result != "" {
+		t.Errorf("got status=%q result=%q, want queued with empty result", got.Status, got.Result)
+	}
+	if !got.Pending {
+		t.Error("pending = false, want true while a turn is queued")
+	}
+}
+
+func TestGetLatestTurnPrefersFinishedTurnOverQueuedOne(t *testing.T) {
+	s := newTestStore(t)
+	sess := seedSession(t, s)
+	done := seedTurn(t, s, sess.ID, "hello", model.TurnDone, "hi there", "")
+	seedTurn(t, s, sess.ID, "what is 2+2", model.TurnQueued, "", "")
+
+	got, err := s.GetLatestTurn(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("GetLatestTurn: %v", err)
+	}
+	if got.ID != done.ID {
+		t.Errorf("id = %v, want the finished turn %v", got.ID, done.ID)
+	}
+	if got.Result != "hi there" {
+		t.Errorf("result = %q, want the last answer", got.Result)
+	}
+	if !got.Pending {
+		t.Error("pending = false, want true because a newer turn is queued")
 	}
 }
 
