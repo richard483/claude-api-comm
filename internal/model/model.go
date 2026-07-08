@@ -55,6 +55,15 @@ type Turn struct {
 	FinishedAt *time.Time `json:"finished_at"`
 }
 
+// LatestTurn is a Turn plus a session-level flag. Pending is true when the
+// session has any queued or running turn — it describes the session, not the
+// turn carried here, so a done turn with Pending true is normal and means
+// "here is the last answer, and a newer turn is still running".
+type LatestTurn struct {
+	Turn
+	Pending bool `json:"pending"`
+}
+
 type Event struct {
 	Type string          `json:"type"`
 	Text string          `json:"text,omitempty"`
