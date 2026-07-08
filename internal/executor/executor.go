@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -30,6 +31,17 @@ func (e *ClaudeExecutor) Run(ctx context.Context, workspace, prompt, resumeID st
 	if resumeID != "" {
 		args = append(args, "--resume", resumeID)
 	}
+	// Guard the workspace before Start. Because we set SysProcAttr below, Go
+	// reports the child's failed chdir(cmd.Dir) as a *PathError on cmd.Path —
+	// i.e. "fork/exec <Bin>: no such file or directory", which blames the claude
+	// binary for a missing working directory. Check it here so the error names
+	// the real culprit.
+	if fi, err := os.Stat(workspace); err != nil {
+		return model.Result{}, fmt.Errorf("workspace unavailable: %s: %w", workspace, err)
+	} else if !fi.IsDir() {
+		return model.Result{}, fmt.Errorf("workspace is not a directory: %s", workspace)
+	}
+
 	cmd := exec.CommandContext(ctx, e.Bin, args...)
 	cmd.Dir = workspace
 	// Fix 3: start child in its own process group so we can kill the whole group.

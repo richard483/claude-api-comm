@@ -137,6 +137,14 @@ func (m *Manager) runTurn(sessionID, turnID uuid.UUID) {
 		m.br.Publish(turnID, model.Event{Type: "error", Text: err.Error()})
 		return
 	}
+	// The workspace can vanish between turns (idle reaper, reinstall, manual rm).
+	// Recreate it before we hand it to claude as a working directory.
+	if err := m.run.Ensure(ctx, sess.WorkspacePath); err != nil {
+		_ = m.st.FinishTurn(ctx, model.Turn{ID: turnID, SessionID: sessionID, Status: model.TurnError, Error: err.Error()})
+		m.br.Publish(turnID, model.Event{Type: "error", Text: err.Error()})
+		return
+	}
+
 	_ = m.st.StartTurn(ctx, turnID)
 	turn.Status = model.TurnRunning
 	m.br.Publish(turnID, model.Event{Type: "status", Text: "running"})
@@ -190,6 +198,10 @@ func (m *Manager) Summarize(ctx context.Context, sessionID uuid.UUID, fork bool)
 		resumeID = *sess.ClaudeSessionID
 	}
 	const summaryPrompt = "Summarize this session so far as durable context for continuing later: key goals, decisions, current state, and open tasks. Be concise."
+
+	if err := m.run.Ensure(ctx, sess.WorkspacePath); err != nil {
+		return model.Session{}, "", err
+	}
 
 	// Fix 1: acquire sem then session lock (same ordering as runTurn).
 	m.sem <- struct{}{}
