@@ -55,6 +55,7 @@ func TestEmbeddedSpecLooksValid(t *testing.T) {
 		"/sessions",
 		"/sessions/{id}/messages",
 		"/sessions/{id}/turns/{turnID}/stream",
+		"/sessions/{id}/turns/latest",
 		"/sessions/{id}/summarize",
 		"/health/ready",
 	}

@@ -17,6 +17,7 @@ type Service interface {
 	ListSessions(ctx context.Context, status string) ([]model.Session, error)
 	GetSession(ctx context.Context, id uuid.UUID) (model.Session, error)
 	GetTurn(ctx context.Context, id uuid.UUID) (model.Turn, error)
+	GetLatestTurn(ctx context.Context, sessionID uuid.UUID) (model.LatestTurn, error)
 	EnqueueTurn(ctx context.Context, sessionID uuid.UUID, prompt string) (model.Turn, error)
 	Subscribe(turnID uuid.UUID) (<-chan model.Event, func())
 	Summarize(ctx context.Context, sessionID uuid.UUID, fork bool) (model.Session, string, error)
@@ -51,6 +52,7 @@ func NewRouter(svc Service) http.Handler {
 	r.Get("/sessions/{id}", h.getSession)
 	r.Post("/sessions/{id}/messages", h.enqueueTurn)
 	r.Get("/sessions/{id}/turns/{turnID}", h.getTurn)
+	r.Get("/sessions/{id}/turns/latest", h.latestTurn)
 	r.Get("/sessions/{id}/turns/{turnID}/stream", h.streamTurn)
 	r.Post("/sessions/{id}/summarize", h.summarize)
 	r.Post("/sessions/{id}/archive", h.archive)
@@ -139,6 +141,20 @@ func (h *handler) getTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *handler) latestTurn(w http.ResponseWriter, r *http.Request) {
+	sid, err := pathUUID(r, "id")
+	if err != nil {
+		httpErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	lt, err := h.svc.GetLatestTurn(r.Context(), sid)
+	if err != nil {
+		httpErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, lt)
 }
 
 func (h *handler) streamTurn(w http.ResponseWriter, r *http.Request) {

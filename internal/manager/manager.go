@@ -72,6 +72,16 @@ func (m *Manager) GetSession(ctx context.Context, id uuid.UUID) (model.Session, 
 func (m *Manager) GetTurn(ctx context.Context, id uuid.UUID) (model.Turn, error) {
 	return m.st.GetTurn(ctx, id)
 }
+
+// GetLatestTurn resolves the session first so that an unknown session id is
+// reported as such, rather than as a session with no turns.
+func (m *Manager) GetLatestTurn(ctx context.Context, sessionID uuid.UUID) (model.LatestTurn, error) {
+	if _, err := m.st.GetSession(ctx, sessionID); err != nil {
+		return model.LatestTurn{}, err
+	}
+	return m.st.GetLatestTurn(ctx, sessionID)
+}
+
 func (m *Manager) Subscribe(turnID uuid.UUID) (<-chan model.Event, func()) {
 	return m.br.Subscribe(turnID)
 }

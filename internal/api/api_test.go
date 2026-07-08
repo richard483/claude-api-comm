@@ -13,8 +13,10 @@ import (
 )
 
 type fakeSvc struct {
-	sess model.Session
-	turn model.Turn
+	sess      model.Session
+	turn      model.Turn
+	latest    model.LatestTurn
+	latestErr error
 }
 
 func (f *fakeSvc) CreateSession(_ context.Context, label, owner string) (model.Session, error) {
@@ -28,6 +30,9 @@ func (f *fakeSvc) GetSession(_ context.Context, id uuid.UUID) (model.Session, er
 	return f.sess, nil
 }
 func (f *fakeSvc) GetTurn(_ context.Context, id uuid.UUID) (model.Turn, error) { return f.turn, nil }
+func (f *fakeSvc) GetLatestTurn(context.Context, uuid.UUID) (model.LatestTurn, error) {
+	return f.latest, f.latestErr
+}
 func (f *fakeSvc) EnqueueTurn(_ context.Context, sid uuid.UUID, prompt string) (model.Turn, error) {
 	f.turn = model.Turn{ID: uuid.New(), SessionID: sid, Prompt: prompt, Status: model.TurnQueued}
 	return f.turn, nil
