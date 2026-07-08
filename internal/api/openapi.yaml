@@ -94,6 +94,30 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/ServerError" }
 
+  /sessions/{id}/turns/latest:
+    get:
+      tags: [turns]
+      summary: Get the last turn of a session
+      description: >
+        Returns the newest finished turn (status done or error). If no turn has finished yet,
+        returns the in-flight turn with an empty result. `pending` is true when the session has
+        any queued or running turn — it describes the session, not the turn in the body, so
+        `status: done` together with `pending: true` is normal and means "here is the last
+        answer, and a newer turn is still running". A failed turn is returned as-is rather than
+        hidden behind an older success. A session that exists but has never been given a
+        message returns 404.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: The last turn, plus whether the session has work in flight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LatestTurn"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /sessions/{id}/turns/{turnID}:
     get:
       tags: [turns]
@@ -271,6 +295,15 @@ components:
         duration_ms: { type: integer, format: int64 }
         created_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time, nullable: true }
+
+    LatestTurn:
+      allOf:
+        - $ref: "#/components/schemas/Turn"
+        - type: object
+          properties:
+            pending:
+              type: boolean
+              description: True when the session has a queued or running turn.
 
     SummarizeResponse:
       type: object
