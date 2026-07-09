@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/richard483/claude-api-comm/internal/model"
+	"github.com/richard483/claude-api-comm/internal/settings"
 )
 
 type Service interface {
@@ -23,6 +24,10 @@ type Service interface {
 	Summarize(ctx context.Context, sessionID uuid.UUID, fork bool) (model.Session, string, error)
 	Archive(ctx context.Context, sessionID uuid.UUID) error
 	Ready(ctx context.Context) error // Fix 6: DB-backed readiness check
+
+	GetConfig() model.Config                    // current runtime config (active model)
+	SetModel(name string) (model.Config, error) // change the active model (validated)
+	ListModels() []settings.KnownModel          // models a caller may select
 }
 
 type handler struct{ svc Service }
@@ -46,6 +51,10 @@ func NewRouter(svc Service) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+
+	r.Get("/config", h.getConfig)
+	r.Put("/config", h.setConfig)
+	r.Get("/models", h.listModels)
 
 	r.Post("/sessions", h.createSession)
 	r.Get("/sessions", h.listSessions)
@@ -216,4 +225,26 @@ func (h *handler) archive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) getConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, h.svc.GetConfig())
+}
+
+func (h *handler) setConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Model string }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		httpErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	cfg, err := h.svc.SetModel(body.Model)
+	if err != nil {
+		httpErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (h *handler) listModels(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, h.svc.ListModels())
 }

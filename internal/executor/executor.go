@@ -17,16 +17,27 @@ type Executor interface {
 	Run(ctx context.Context, workspace, prompt, resumeID string, emit func(model.Event)) (model.Result, error)
 }
 
+// ModelProvider supplies the model to pass to `claude --model` at the moment a
+// turn runs. It is read per-run so the model can change at runtime without
+// rebuilding the executor. An empty string means no --model flag is passed.
+type ModelProvider interface {
+	Model() string
+}
+
 type ClaudeExecutor struct {
-	Bin   string
-	Model string
+	Bin string
+	// Model, when non-nil, is consulted on every Run for the current --model
+	// value. A nil provider (or one returning "") passes no --model flag.
+	Model ModelProvider
 }
 
 func (e *ClaudeExecutor) Run(ctx context.Context, workspace, prompt, resumeID string, emit func(model.Event)) (model.Result, error) {
 	// claude requires --verbose when combining --print (-p) with --output-format stream-json.
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
-	if e.Model != "" {
-		args = append(args, "--model", e.Model)
+	if e.Model != nil {
+		if m := e.Model.Model(); m != "" {
+			args = append(args, "--model", m)
+		}
 	}
 	if resumeID != "" {
 		args = append(args, "--resume", resumeID)

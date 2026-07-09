@@ -11,6 +11,7 @@ import (
 	"github.com/richard483/claude-api-comm/internal/executor"
 	"github.com/richard483/claude-api-comm/internal/manager"
 	"github.com/richard483/claude-api-comm/internal/runner"
+	"github.com/richard483/claude-api-comm/internal/settings"
 	"github.com/richard483/claude-api-comm/internal/store"
 )
 
@@ -30,8 +31,9 @@ func main() {
 	}
 
 	run := &runner.WorktreeRunner{BaseDir: cfg.WorkspaceBaseDir}
-	ex := &executor.ClaudeExecutor{Bin: cfg.ClaudeBin, Model: cfg.DefaultModel}
-	mgr := manager.New(st, run, ex, broker.New(), cfg.MaxConcurrency, cfg.TurnTimeout)
+	set := settings.New(cfg.DefaultModel)
+	ex := &executor.ClaudeExecutor{Bin: cfg.ClaudeBin, Model: set}
+	mgr := manager.New(st, run, ex, broker.New(), set, cfg.MaxConcurrency, cfg.TurnTimeout)
 
 	log.Printf("claude-api-comm listening on %s", cfg.ListenAddr)
 	if err := http.ListenAndServe(cfg.ListenAddr, api.NewRouter(mgr)); err != nil {

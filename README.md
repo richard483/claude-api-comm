@@ -18,7 +18,7 @@ asynchronously, stream progress over SSE, and persist a session/turn registry in
 | LISTEN_ADDR | :18100 | HTTP listen address |
 | WORKSPACE_BASE_DIR | /home/nephren/claude-sessions | per-session worktrees |
 | CLAUDE_BIN | claude | claude binary path |
-| DEFAULT_MODEL | (none) | --model passed to claude |
+| DEFAULT_MODEL | (none) | initial `--model` passed to claude; changeable at runtime via `PUT /config` |
 | MAX_CONCURRENCY | 3 | global concurrent turns |
 | TURN_TIMEOUT | 30m | per-turn ceiling |
 | IDLE_REAP_AGE | 24h | reserved for idle reaping |
@@ -30,6 +30,9 @@ Swagger UI with "Try it out" is served at `http://<host>:18100/docs` (raw spec a
 
 ## Endpoints
 
+- `GET /config` → current runtime config (the active model)
+- `PUT /config` `{model}` → set the model for new turns (validated against `GET /models`)
+- `GET /models` → models you may select, with their aliases
 - `POST /sessions` `{label,owner}` → 201 session
 - `GET /sessions?status=` → sessions
 - `GET /sessions/{id}` → session
@@ -40,6 +43,26 @@ Swagger UI with "Try it out" is served at `http://<host>:18100/docs` (raw spec a
 - `POST /sessions/{id}/archive` → 204
 
 No auth in v1; deploy on a trusted network behind a verifying caller.
+
+## Model configuration
+
+The model is a service-wide runtime setting. It starts at `DEFAULT_MODEL` (empty = the
+claude CLI's own default) and can be viewed or changed without a restart:
+
+    # see what model is in effect
+    curl http://<host>:18100/config
+    # -> {"model":"claude-opus-4-8"}   (empty string means "claude CLI default")
+
+    # list selectable models (canonical names + aliases)
+    curl http://<host>:18100/models
+
+    # switch models for subsequent turns (validated against /models)
+    curl -X PUT http://<host>:18100/config -d '{"model":"claude-sonnet-5"}'
+    # an alias works too:  -d '{"model":"sonnet"}'
+    # reset to the claude CLI default:  -d '{"model":""}'
+
+The change applies to turns enqueued afterward; a turn already running keeps the model it
+started with. An unknown model name is rejected with 400.
 
 ## Deploy as a systemd service
 

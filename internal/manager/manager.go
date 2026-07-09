@@ -11,6 +11,7 @@ import (
 	"github.com/richard483/claude-api-comm/internal/executor"
 	"github.com/richard483/claude-api-comm/internal/model"
 	"github.com/richard483/claude-api-comm/internal/runner"
+	"github.com/richard483/claude-api-comm/internal/settings"
 	"github.com/richard483/claude-api-comm/internal/store"
 )
 
@@ -19,6 +20,7 @@ type Manager struct {
 	run         runner.SessionRunner
 	ex          executor.Executor
 	br          *broker.Broker
+	set         *settings.Settings
 	sem         chan struct{}
 	turnTimeout time.Duration
 
@@ -28,15 +30,34 @@ type Manager struct {
 	running      map[uuid.UUID]context.CancelFunc // sessionID -> cancel for running turn (Fix 5)
 }
 
-func New(st *store.Store, run runner.SessionRunner, ex executor.Executor, br *broker.Broker, maxConcurrency int, turnTimeout time.Duration) *Manager {
+func New(st *store.Store, run runner.SessionRunner, ex executor.Executor, br *broker.Broker, set *settings.Settings, maxConcurrency int, turnTimeout time.Duration) *Manager {
 	return &Manager{
-		st: st, run: run, ex: ex, br: br,
+		st: st, run: run, ex: ex, br: br, set: set,
 		sem:          make(chan struct{}, maxConcurrency),
 		turnTimeout:  turnTimeout,
 		workers:      make(map[uuid.UUID]chan uuid.UUID),
 		sessionLocks: make(map[uuid.UUID]*sync.Mutex),
 		running:      make(map[uuid.UUID]context.CancelFunc),
 	}
+}
+
+// GetConfig reports the current runtime configuration (the active model).
+func (m *Manager) GetConfig() model.Config {
+	return model.Config{Model: m.set.Model()}
+}
+
+// SetModel validates name against the known model list and, if valid, makes it
+// the model used for subsequent turns. It returns the resulting config.
+func (m *Manager) SetModel(name string) (model.Config, error) {
+	if err := m.set.SetModel(name); err != nil {
+		return model.Config{}, err
+	}
+	return model.Config{Model: m.set.Model()}, nil
+}
+
+// ListModels returns the models a caller may select.
+func (m *Manager) ListModels() []settings.KnownModel {
+	return settings.KnownModels
 }
 
 // sessionLock returns the per-session mutex, creating it lazily under m.mu.

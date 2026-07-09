@@ -77,3 +77,10 @@ type Result struct {
 	CostUSD         float64
 	DurationMs      int64
 }
+
+// Config is the runtime-mutable service configuration exposed over the API.
+// An empty Model means no --model flag is passed to claude, so the CLI uses
+// its own built-in default.
+type Config struct {
+	Model string `json:"model"`
+}

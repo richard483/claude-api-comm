@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/richard483/claude-api-comm/internal/model"
+	"github.com/richard483/claude-api-comm/internal/settings"
 )
 
 type fakeSvc struct {
@@ -17,6 +19,8 @@ type fakeSvc struct {
 	turn      model.Turn
 	latest    model.LatestTurn
 	latestErr error
+	cfg       model.Config
+	setErr    error
 }
 
 func (f *fakeSvc) CreateSession(_ context.Context, label, owner string) (model.Session, error) {
@@ -47,6 +51,15 @@ func (f *fakeSvc) Summarize(context.Context, uuid.UUID, bool) (model.Session, st
 }
 func (f *fakeSvc) Archive(context.Context, uuid.UUID) error { return nil }
 func (f *fakeSvc) Ready(context.Context) error              { return nil }
+func (f *fakeSvc) GetConfig() model.Config                  { return f.cfg }
+func (f *fakeSvc) SetModel(name string) (model.Config, error) {
+	if f.setErr != nil {
+		return model.Config{}, f.setErr
+	}
+	f.cfg = model.Config{Model: name}
+	return f.cfg, nil
+}
+func (f *fakeSvc) ListModels() []settings.KnownModel { return settings.KnownModels }
 
 func TestCreateSessionEndpoint(t *testing.T) {
 	r := NewRouter(&fakeSvc{})
@@ -118,5 +131,66 @@ func TestHealthReady(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
+	}
+}
+
+func TestGetConfig(t *testing.T) {
+	r := NewRouter(&fakeSvc{cfg: model.Config{Model: "claude-opus-4-8"}})
+	req := httptest.NewRequest(http.MethodGet, "/config", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
+	}
+	var got model.Config
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "claude-opus-4-8" {
+		t.Errorf("model = %q, want claude-opus-4-8", got.Model)
+	}
+}
+
+func TestSetConfigUpdatesModel(t *testing.T) {
+	r := NewRouter(&fakeSvc{})
+	req := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(`{"model":"claude-sonnet-5"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
+	}
+	var got model.Config
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "claude-sonnet-5" {
+		t.Errorf("model = %q, want claude-sonnet-5", got.Model)
+	}
+}
+
+func TestSetConfigRejectsUnknownModel(t *testing.T) {
+	r := NewRouter(&fakeSvc{setErr: errors.New(`unknown model "gpt-5"`)})
+	req := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(`{"model":"gpt-5"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body)
+	}
+}
+
+func TestListModels(t *testing.T) {
+	r := NewRouter(&fakeSvc{})
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body)
+	}
+	var got []settings.KnownModel
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one model")
 	}
 }

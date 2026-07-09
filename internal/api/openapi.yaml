@@ -13,9 +13,62 @@ servers:
 tags:
   - name: sessions
   - name: turns
+  - name: config
   - name: health
 
 paths:
+  /config:
+    get:
+      tags: [config]
+      summary: Get the current runtime config
+      description: >
+        Returns the service's current configuration. `model` is the value passed to
+        `claude --model` for new turns; an empty string means no --model flag is passed,
+        so the claude CLI uses its own built-in default.
+      responses:
+        "200":
+          description: Current config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Config"
+    put:
+      tags: [config]
+      summary: Set the model used for new turns
+      description: >
+        Changes the model applied to subsequently enqueued turns. The name must be one of
+        the canonical names or aliases from GET /models; an empty string resets to the
+        claude CLI default. Turns already running keep the model they started with.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Config"
+      responses:
+        "200":
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Config"
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /models:
+    get:
+      tags: [config]
+      summary: List selectable models
+      description: The models a caller may set via PUT /config, most-capable first.
+      responses:
+        "200":
+          description: Known models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+
   /sessions:
     post:
       tags: [sessions]
@@ -250,6 +303,32 @@ components:
       type: object
       properties:
         error:
+          type: string
+
+    Config:
+      type: object
+      properties:
+        model:
+          type: string
+          description: >
+            Model passed to `claude --model` for new turns. Empty means no --model flag
+            (claude CLI default).
+          example: claude-opus-4-8
+
+    ModelInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Canonical value passed to `claude --model`.
+          example: claude-opus-4-8
+        aliases:
+          type: array
+          items:
+            type: string
+          description: Shorthands the claude CLI also accepts.
+          example: [opus]
+        description:
           type: string
 
     CreateSessionRequest:

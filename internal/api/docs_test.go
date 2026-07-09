@@ -57,6 +57,8 @@ func TestEmbeddedSpecLooksValid(t *testing.T) {
 		"/sessions/{id}/turns/{turnID}/stream",
 		"/sessions/{id}/turns/latest",
 		"/sessions/{id}/summarize",
+		"/config",
+		"/models",
 		"/health/ready",
 	}
 	for _, s := range mustContain {

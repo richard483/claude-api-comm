@@ -10,6 +10,7 @@ import (
 	"github.com/richard483/claude-api-comm/internal/broker"
 	"github.com/richard483/claude-api-comm/internal/model"
 	"github.com/richard483/claude-api-comm/internal/runner"
+	"github.com/richard483/claude-api-comm/internal/settings"
 	"github.com/richard483/claude-api-comm/internal/store"
 )
 
@@ -49,7 +50,7 @@ func newMgr(t *testing.T) (*Manager, *fakeExec) {
 	}
 	t.Cleanup(st.Close)
 	fx := &fakeExec{}
-	m := New(st, &runner.WorktreeRunner{BaseDir: t.TempDir()}, fx, broker.New(), 2, time.Minute)
+	m := New(st, &runner.WorktreeRunner{BaseDir: t.TempDir()}, fx, broker.New(), settings.New(""), 2, time.Minute)
 	return m, fx
 }
 

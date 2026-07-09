@@ -11,6 +11,7 @@ import (
 	"github.com/richard483/claude-api-comm/internal/broker"
 	"github.com/richard483/claude-api-comm/internal/model"
 	"github.com/richard483/claude-api-comm/internal/runner"
+	"github.com/richard483/claude-api-comm/internal/settings"
 	"github.com/richard483/claude-api-comm/internal/store"
 )
 
@@ -52,7 +53,7 @@ func newMgrWithWSCheck(t *testing.T) (*Manager, *wsCheckingExec) {
 	}
 	t.Cleanup(st.Close)
 	fx := &wsCheckingExec{}
-	return New(st, &runner.WorktreeRunner{BaseDir: t.TempDir()}, fx, broker.New(), 2, time.Minute), fx
+	return New(st, &runner.WorktreeRunner{BaseDir: t.TempDir()}, fx, broker.New(), settings.New(""), 2, time.Minute), fx
 }
 
 // The idle reaper (or a reinstall) can delete a live session's workspace. The
